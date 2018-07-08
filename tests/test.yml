@@ -1,0 +1,5 @@
+exec_type: python3
+exec_info:
+  code:
+    type: path
+    data: tests/tmp.py

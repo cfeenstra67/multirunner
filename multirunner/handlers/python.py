@@ -65,8 +65,7 @@ def get_handler(path, mod_name, handler):
 
 def validate_spec(spec):
     try:
-        spec = json.loads(spec)
-        execution_info = spec['exec_info']
+        execution_info = json.loads(spec)
     except ALWAYS_RAISE:
         raise
     except:
@@ -75,20 +74,35 @@ def validate_spec(spec):
             'when': 'loading spec'
         }
 
+    rm, path = True, None
     try:
-        code = execution_info['code']
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.py') as ntf:
-            path = ntf.name
-            ntf.write(code)
+        code, input_type = execution_info['code'], 'string'
+
+        if isinstance(code, dict):
+            input_type = code['type']
+            code = code['data']
+
+        if input_type == 'string':
+            with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.py') as ntf:
+                path = ntf.name
+                ntf.write(code)
+        elif input_type == 'path':
+            assert os.path.isfile(code), '%s is not a valid local path' % str(code)
+            path = code
+            rm = False
+        else:
+            raise ValueError('%s is not a valid input type' % str(input_type))
+
     except ALWAYS_RAISE:
         raise
     except:
-        try: os.remove(path)
-        except FileNotFoundError: pass
+        if path is not None:
+            try: os.remove(path)
+            except FileNotFoundError: pass
 
         return False, {
             'stack': traceback.format_exc(),
-            'when': 'writing file'
+            'when': 'loading code'
         }
 
     try:
@@ -119,8 +133,9 @@ def validate_spec(spec):
 
         return True, handler_func
     finally:
-        try: os.remove(path)
-        except FileNotFoundError: pass
+        if rm:
+            try: os.remove(path)
+            except FileNotFoundError: pass
 
 def handle_item(handler, item, context_arg=True):
     oc = OutputCapture()
@@ -154,16 +169,13 @@ def main(in_data):
     if valid:
         print('OK')
         for item in fin:
-            import random
-            if random.random() > .9:
-                raise Exception()
             val = handle_item(data, item)
             if val is None:
                 break
-            print(json.dumps(val))
+            print(json.dumps(val, sort_keys=True))
     else:
         print('ERROR')
-        print(json.dumps(data))
+        print(json.dumps(data, sort_keys=True))
 
 if __name__ == '__main__':
     try:

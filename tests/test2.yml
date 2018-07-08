@@ -1,0 +1,5 @@
+exec_type: node
+exec_info:
+  code:
+    type: path
+    data: tests/tmp.js

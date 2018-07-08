@@ -5,8 +5,8 @@ import os
 import psutil
 import select
 from .settings import (
-	RUNNER_EXECUTABLES, DEFAULT_MEMORY, DEFAULT_CPU,
-	ALWAYS_RAISE
+	RUNNER_COMMANDS, DEFAULT_MEMORY, DEFAULT_CPU,
+	ALWAYS_RAISE, RUNNER_HANDLERS
 )
 import signal
 import subprocess
@@ -16,18 +16,19 @@ import time
 import traceback
 from .utils import signal_handler, IterationCompleted, locked_attr_funcs
 
-def create_process(executable, spec, swap_sigint=True, universal_newlines=True):
+def create_process(executable, spec, swap_sigint=True, universal_newlines=True, 
+				   stderr=None):
+
 	handler = None
 	if swap_sigint:
 		handler = signal.signal(signal.SIGINT, signal.default_int_handler)
 
-	mode = 'w' if universal_newlines else 'wb'
-	r, w = os.pipe()
 	popen = subprocess.Popen(
 		executable,
 		stdin=subprocess.PIPE,
 		stdout=subprocess.PIPE,
-		stderr=subprocess.DEVNULL,
+		# stderr=subprocess.DEVNULL if stderr is None else stderr,
+		stderr=subprocess.PIPE,
 		bufsize=1 if universal_newlines else -1,
 		universal_newlines=universal_newlines
 	)
@@ -40,6 +41,7 @@ def create_process(executable, spec, swap_sigint=True, universal_newlines=True):
 		spec += term
 	popen.stdin.write(spec)
 	popen.stdin.flush()
+
 	ok = popen.stdout.readline()
 	ok = ok.strip().upper()
 	if isinstance(ok, str):
@@ -50,7 +52,8 @@ def create_process(executable, spec, swap_sigint=True, universal_newlines=True):
 		return True, popen
 
 	popen.stdout.flush()
-	err = popen.stdout.read()
+	popen.stderr.flush()
+	err = popen.stdout.read() + popen.stderr.read()
 	popen.terminate()
 	return False, err
 
@@ -64,18 +67,20 @@ class StatsCollector(object):
 
 	def update(self, pids):
 		for pid in pids:
-			ct = self.counts.setdefault(pid, 0)
+			self.counts.setdefault(pid, 0)
 			current = self.data.setdefault(pid, {})
 			try:
 				info = self.get_stats(pid)
 				if info is None:
 					continue
+
 			except (
 				ProcessLookupError, 
 				psutil._exceptions.AccessDenied,
 				psutil._exceptions.NoSuchProcess
 			):
 				continue
+
 			for k, v in info.items():
 				current.setdefault(k, 0)
 				current[k] += v
@@ -83,9 +88,11 @@ class StatsCollector(object):
 
 	def get_stats(self, pid):
 		proc = self.procs.get(pid)
+
 		if proc is None:
 			proc = self.procs[pid] = psutil.Process(pid)
 			return
+
 		with proc.oneshot():
 			return {
 				'cpus': proc.cpu_percent() / 100.,
@@ -121,10 +128,12 @@ class StatsCollector(object):
 class JobRunner(object):
 
 	def __init__(self, spec, data_stream, memory_lim=DEFAULT_MEMORY, logger=logging.getLogger(),
-				 executables=RUNNER_EXECUTABLES, cpu_lim=DEFAULT_CPU, n_procs=None, maintain=True):
+				 executables=RUNNER_COMMANDS, cpu_lim=DEFAULT_CPU, n_procs=None, maintain=True,
+				 handlers=RUNNER_HANDLERS):
 
 		self.spec = spec
 		self.executables = executables
+		self.handlers = handlers
 		self.memory_lim = memory_lim
 		self.cpu_lim = cpu_lim
 		self.data_stream = data_stream
@@ -135,6 +144,9 @@ class JobRunner(object):
 		self._procs = {}
 		self.streams = {}
 		self.exec_type = None
+		self.exec_info = None
+		self.executable = None
+		self.handler = None
 		self.signals_recvd = {}
 		self._stats = StatsCollector()
 		self._running = False
@@ -168,14 +180,15 @@ class JobRunner(object):
 
 		return max(min(m_n_procs, c_n_procs), 1)
 
-	def create_process(self, exec_type):
-		spec_str = json.dumps(self.spec)
-		executable = self.executables[exec_type]
+	def create_process(self, executable, handler, exec_info):
+		spec_str = json.dumps(exec_info)
+		executable = executable.copy()
+		executable.append(handler)
 		return create_process(executable, spec_str)
 
 	def kill_process(self, proc, soft=True, wait=False):
 		if soft:
-			proc.send_signal(signal.SIGTERM)
+			proc.send_signal(signal.SIGINT)
 		else:
 			proc.terminate()
 		if wait:
@@ -202,19 +215,48 @@ class JobRunner(object):
 				'when': 'getting exec_type'
 			}
 
+		try:
+			if isinstance(self.exec_type, dict):
+				self.executable = self.exec_type['executable']
+				self.handler = self.exec_type['handler']
+			else:
+				self.executable = self.executables[self.exec_type]
+				self.handler = self.handlers[self.exec_type]
+		except ALWAYS_RAISE:
+			raise
+		except:
+			return False, {
+				'stack': traceback.format_exc(),
+				'when': 'resolving executable/handler paths'
+			}
+
+		try:
+			self.exec_info = self.spec['exec_info']
+		except ALWAYS_RAISE:
+			raise
+		except:
+			return False, {
+				'stack': traceback.format_exc(),
+				'when': 'getting exec_info'
+			}
+
 		all_success = True
 		err = None
 		self.logger.debug('creating %d processes', n_procs)
 		for _ in range(n_procs):
-			success, proc = self.create_process(self.exec_type)
+			success, proc = self.create_process(
+				self.executable, 
+				self.handler, 
+				self.exec_info
+			)
 			if not success:
 				all_success = False
 				try:
 					err = json.loads(proc)
 				except:
 					err = {
-						'stack': traceback.format_exc(),
-						'when': 'decoding error'
+						'stack': proc,
+						'when': 'decoding error (raw provided)'
 					}
 				break
 
@@ -265,7 +307,7 @@ class JobRunner(object):
 		if self.signals_recvd.get(signal.SIGINT, 0) > 0 or not self.create:
 			return
 		self.logger.debug('process died. creating new')
-		success, proc = self.create_process(self.exec_type)
+		success, proc = self.create_process(self.executable, self.handler, self.exec_info)
 		self.logger.debug('created')
 		if success:
 			if self.seed(proc.stdin):
@@ -316,15 +358,19 @@ class JobRunner(object):
 		vals = list(self.procs.values())
 		max_ind = -1
 		for ind, proc in enumerate(self.procs.values()):
-			max_ind = ind
+			self.logger.debug('seeding %d' % proc.pid)
 			if not self.seed(proc.stdin):
 				break
+			max_ind = ind
 
 		# delete unneeded processes
-		for proc in vals[max_ind + 1:]:
-			fn = proc.stdout.fileno()
-			self.kill_process(proc, soft=False, wait=True)
-			del self.procs[fn], self.streams[fn]
+		remaining = len(vals) - max_ind - 1
+		if remaining > 0:
+			self.logger.debug('deleting %d processe(s)', remaining)
+			for proc in vals[-remaining:]:
+				fn = proc.stdout.fileno()
+				self.kill_process(proc, soft=False, wait=True)
+				del self.procs[fn], self.streams[fn]
 
 	def update_stats(self):
 		procs = [v.pid for v in self.procs.values() if not v.returncode]

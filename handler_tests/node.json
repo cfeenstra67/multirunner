@@ -1,0 +1,2 @@
+node multirunner/handlers/node.js
+{"code": "module.exports = {main: console.log};"}

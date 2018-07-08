@@ -1,0 +1,2 @@
+python3 -u multirunner/handlers/python.py
+{"code": "main = print"}
