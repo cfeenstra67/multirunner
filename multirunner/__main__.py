@@ -1,11 +1,12 @@
 import argparse
 import atexit
+import json
 import logging
 import os
 from .runner import JobRunner
-from .settings import ALWAYS_RAISE, RUNNER_HANDLERS
+from .settings import ALWAYS_RAISE, RUNNER_HANDLERS, YAML_ENABLED
 import sys
-import yaml
+import warnings
 
 def parse_args(argv=sys.argv[1:], default_loglvl=logging.INFO):
 	parser = argparse.ArgumentParser('MultiRunner')
@@ -17,7 +18,7 @@ def parse_args(argv=sys.argv[1:], default_loglvl=logging.INFO):
 	parser.add_argument('-d', '--data', type=str, default=sys.stdin,
 		help='Data file to be used as input. uses stdin by default. '
 		'Input data should be one JSON object per line')
-	parser.add_argument('-e', '--encoding', type=str, default='utf-8',
+	parser.add_argument('--encoding', type=str, default='utf-8',
 		help='Encoding to be used reading data file, if applicable')
 
 	parser.add_argument('-n', '--n-processes', type=int, default=os.cpu_count(),
@@ -34,7 +35,7 @@ def parse_args(argv=sys.argv[1:], default_loglvl=logging.INFO):
 	parser.add_argument('-l', '--logfile', type=str, default=sys.stdout,
 		help='File to write logger output to.')
 
-	parser.add_argument('--exec-type', type=str, default=None,
+	parser.add_argument('-e', '--exec-type', type=str, default=None,
 		help='Overrides exec_type in spec if one is being provided')
 	parser.add_argument('-c', '--code', type=str, default=None,
 		help='Overrides exec_info->code in spec if one is being provided')
@@ -44,9 +45,9 @@ def parse_args(argv=sys.argv[1:], default_loglvl=logging.INFO):
 		help='Overrides exec_info->setup_hook in spec if one is being provided')
 
 	args = parser.parse_args(argv)
+	# if args.spec_file is None:
+	# 	parser.error('You must provide a spec')
 
-	if args.spec_file is None:
-		parser.error('You must provide a spec')
 
 	if isinstance(args.data, str):
 		try:
@@ -96,12 +97,29 @@ def validate_spec(spec):
 	if 'exec_info' not in spec:
 		yield 'You must specify exec_info!'
 
+def log_stats(runner, log):
+	log('# Processes: %d', runner.n_procs())
+	if runner.stats is not None:
+		avgs = runner.stats.average_stats(per_pid=False)
+		statstr = json.dumps(avgs, indent=4)
+		log('Per-process average stats:\n%s', statstr)
+
 def load_spec(args, parser):
 	spec = {}
 	if args.spec_file is not None:
+		if YAML_ENABLED:
+			import yaml
+			if args.spec_file.endswith('.json'):
+				loader = json.load
+			else:
+				loader = yaml.load
+		else:
+			warnings.warn('optional YAML dependency missing--spec must be JSON')
+			loader = json.load
+
 		try:
 			with open(args.spec_file) as f:
-				spec = yaml.load(f)
+				spec = loader(f)
 				assert isinstance(spec, dict)
 		except (yaml.reader.ReaderError, AssertionError) as exc:
 			parser.error('Error loading YAML spec. Spec must be a valid YAML object')
@@ -163,6 +181,8 @@ def main(argv=sys.argv[1:]):
 	except ALWAYS_RAISE as exc:
 		logger.info('Exiting w/ %s' % exc.__class__.__name__)
 		return 1
+
+	log_stats(runner, logger.info)
 
 	return 0
 

@@ -2,4 +2,4 @@ exec_type: python3
 exec_info:
   code:
     type: path
-    data: tests/tmp.py
+    data: tests/test_py.py

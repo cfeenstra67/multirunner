@@ -2,4 +2,4 @@ exec_type: node
 exec_info:
   code:
     type: path
-    data: tests/tmp.js
+    data: tests/test_node.js

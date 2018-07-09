@@ -2,11 +2,10 @@ from itertools import chain
 import json
 import logging
 import os
-import psutil
 import select
 from .settings import (
 	RUNNER_COMMANDS, DEFAULT_MEMORY, DEFAULT_CPU,
-	ALWAYS_RAISE, RUNNER_HANDLERS
+	ALWAYS_RAISE, RUNNER_HANDLERS, ANALYTICS_ENABLED
 )
 import signal
 import subprocess
@@ -15,6 +14,7 @@ import threading
 import time
 import traceback
 from .utils import signal_handler, IterationCompleted, locked_attr_funcs
+
 
 def create_process(executable, spec, swap_sigint=True, universal_newlines=True, 
 				   stderr=None):
@@ -58,72 +58,80 @@ def create_process(executable, spec, swap_sigint=True, universal_newlines=True,
 	return False, err
 
 
-class StatsCollector(object):
+if ANALYTICS_ENABLED:
+	import psutil
+	
+	class StatsCollector(object):
 
-	def __init__(self):
-		self.data = {}
-		self.counts = {}
-		self.procs = {}
+		def __init__(self):
+			self.data = {}
+			self.counts = {}
+			self.procs = {}
 
-	def update(self, pids):
-		for pid in pids:
-			self.counts.setdefault(pid, 0)
-			current = self.data.setdefault(pid, {})
-			try:
-				info = self.get_stats(pid)
-				if info is None:
+		def update(self, pids):
+			for pid in pids:
+				self.counts.setdefault(pid, 0)
+				current = self.data.setdefault(pid, {})
+				try:
+					info = self.get_stats(pid)
+					if info is None:
+						continue
+
+				except (
+					ProcessLookupError, 
+					psutil._exceptions.AccessDenied,
+					psutil._exceptions.NoSuchProcess
+				):
 					continue
 
-			except (
-				ProcessLookupError, 
-				psutil._exceptions.AccessDenied,
-				psutil._exceptions.NoSuchProcess
-			):
-				continue
+				for k, v in info.items():
+					current.setdefault(k, 0)
+					current[k] += v
+				self.counts[pid] += 1
 
-			for k, v in info.items():
-				current.setdefault(k, 0)
-				current[k] += v
-			self.counts[pid] += 1
+		def reset(self):
+			self.data = {}
+			self.counts = {}
+			self.procs = {}
 
-	def get_stats(self, pid):
-		proc = self.procs.get(pid)
+		def get_stats(self, pid):
+			proc = self.procs.get(pid)
 
-		if proc is None:
-			proc = self.procs[pid] = psutil.Process(pid)
-			return
+			if proc is None:
+				proc = self.procs[pid] = psutil.Process(pid)
+				return
 
-		with proc.oneshot():
-			return {
-				'cpus': proc.cpu_percent() / 100.,
-				'memory': proc.memory_info().rss
-			}
+			with proc.oneshot():
+				return {
+					'cpus': proc.cpu_percent() / 100.,
+					'memory': proc.memory_info().rss
+				}
 
-	def average_stats(self, per_pid=True):
-		out = {}
-		for k, v in self.data.items():
-			scaled = {}
-			count = self.counts[k]
-			for k2, v2 in v.items():
-				scaled[k2] = v2 / float(count)
-			out[k] = scaled
+		def average_stats(self, per_pid=True):
+			out = {}
+			for k, v in self.data.items():
+				scaled = {}
+				count = self.counts[k]
+				for k2, v2 in v.items():
+					scaled[k2] = v2 / float(count)
+				out[k] = scaled
 
-		if per_pid:
-			return out
+			if per_pid:
+				return out
 
-		final = {}
-		cts = {}
-		for v in out.values():
-			for k2, v2 in v.items():
-				final.setdefault(k2, 0)
-				final[k2] += v2
-				cts.setdefault(k2, 0)
-				cts[k2] += 1
+			final = {}
+			cts = {}
+			for v in out.values():
+				for k2, v2 in v.items():
+					final.setdefault(k2, 0)
+					final[k2] += v2
+					cts.setdefault(k2, 0)
+					cts[k2] += 1
 
-		for k, v in final.items():
-			final[k] = v / cts[k]
+			for k, v in final.items():
+				final[k] = v / cts[k]
 
-		return final
+			return final
 
 class JobRunner(object):
 
@@ -148,7 +156,10 @@ class JobRunner(object):
 		self.executable = None
 		self.handler = None
 		self.signals_recvd = {}
-		self._stats = StatsCollector()
+		if ANALYTICS_ENABLED:
+			self._stats = StatsCollector()
+		else:
+			self._stats = None
 		self._running = False
 		self.attrlocks = {
 			name: threading.Lock() for name
@@ -377,6 +388,8 @@ class JobRunner(object):
 		self.stats.update(procs)
 
 	def monitor(self, interval=0.1):
+		if self.stats is None:
+			return
 		try:
 			while self.running:
 				try:
