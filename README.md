@@ -28,7 +28,7 @@ exec_info:
 # 		type: string
 #		data: "def setup(): pass \ndef handle(event, context): print(event, context)"
 #	setup_hook: setup
-#	handler: main
+#	handler: handle
 ```
 the commented example shows the other options for specifying `code`: `handler` specifies the function to be used to process items, and should take `event` and `context` args (`context` will be an empty dictionary/object currently--this is done for future use and to have the same interface as AWS Lambda). If not provided, it defaults to `main`. `setup_hook` specifies a function in the module defined by `code` to be run once when each child process is created. `code` should be either a string containing code or a object with `type` and `data` keys, where `type` is one of `string` or `path`. 
 
