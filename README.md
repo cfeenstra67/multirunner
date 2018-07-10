@@ -13,6 +13,8 @@ with runner.run() as gen:
 ```
 the context manager yielding a generator is a bit clunky syntactically, but in this case a regular generator isn't sufficient to make sure the necessary cleanup is done regardless of whether the generator is exhausted. 
 
+Notably the `runner` has an attribute `stats`. This is an object that collects analytics about the child processes being run. The `average_stats()` method of this object can be used to retrieve average statistics about memory and cpu usage of the child processes. By default it returns the averages per pid--pass `per_pid=False` to this method to retrieve overall averages.
+
 ## CLI
 
 The `JobRunner` functionality can also be accessed through the CLI. Specs are provided as files, either YAML or JSON. The data stream can either be provided as a file or through stdin, where each line is a JSON object. A spec file might look like:
@@ -37,6 +39,8 @@ The CLI can be used (with the `multirunner` package installed):
 multirunner -s spec.yml -d data.json
 ```
 Using `python3 -m multirunner` instead of `multirunner` can be used if the package is not installed or if there is a name overlap. Use the `--help` argument ot view additional options. 
+
+THe CLI will print the average memory and CPU usage statistics to screen after running.
 
 ## Installation
 
