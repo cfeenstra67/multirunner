@@ -19,9 +19,9 @@ The `JobRunner` functionality can also be accessed through the CLI. Specs are pr
 ```yaml
 exec_type: python3
 exec_info:
-	code:
-		type: path
-		data: run.py
+    code:
+        type: path
+        data: run.py
 
 # exec_info:
 # 	code:
