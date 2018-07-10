@@ -1,0 +1,2 @@
+python2.7 -u multirunner/handlers/python.py
+{"code": "from __future__ import print_function\nmain = print"}

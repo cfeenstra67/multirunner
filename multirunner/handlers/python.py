@@ -3,9 +3,10 @@ from __future__ import print_function
 import argparse
 import fileinput
 try:
-    from io import StringIO
+    from io import StringIO, BytesIO
 except ImportError:
     from StringIO import StringIO
+    from BytesIO import BytesIO
 import json
 import logging
 import os
@@ -23,8 +24,10 @@ class OutputCapture(object):
             'stdout': stdout,
             'stderr': stderr
         }
+
+        io_con = BytesIO if sys.version_info.major == 2 else StringIO
         self.streams = {
-            name: StringIO() for name in 
+            name: io_con() for name in 
             ['stdout', 'stderr']
         }
         self.saves = {
@@ -162,12 +165,25 @@ def handle_item(handler, item, context_arg=True):
         'stderr': oc.streams['stderr'].getvalue()
     }
 
+def iterate_stdin():
+    '''
+    Something weird about iterating through sys.stdin (which
+    I think is what fileinput does internally) in python2--it 
+    doesn't start iterating until it's closed or something.
+    '''
+    while True:
+        line = sys.stdin.readline()
+        yield line
+
 def main(in_data):
     fin = iter(in_data)
     spec = next(fin)
+
     valid, data = validate_spec(spec)
     if valid:
-        print('OK')
+        sys.stdout.write('OK\n')
+        sys.stdout.flush()
+        # print('OK')
         for item in fin:
             val = handle_item(data, item)
             if val is None:
@@ -178,7 +194,8 @@ def main(in_data):
         print(json.dumps(data, sort_keys=True))
 
 if __name__ == '__main__':
+    lines = iterate_stdin if sys.version_info.major == 2 else fileinput.input
     try:
-        main(fileinput.input())
+        main(lines())
     except ALWAYS_RAISE:
         pass

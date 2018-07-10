@@ -53,6 +53,7 @@ RUNNER_HANDLERS = {
 RUNNER_COMMANDS = {
 	'python2': [PYTHON2_CMD, '-u'],
 	'python3': [PYTHON3_CMD, '-u'],
-	'python': [PYTHON_CMD, '-u'],
 	'node': [NODE_CMD, '--no-deprecation']
 }
+
+RUNNER_COMMANDS['python'] = RUNNER_COMMANDS['python3' if _major == 3 else 'python2']

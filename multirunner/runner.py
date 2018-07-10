@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from itertools import chain
 import json
 import logging
@@ -230,6 +231,10 @@ class JobRunner(object):
 			if isinstance(self.exec_type, dict):
 				self.executable = self.exec_type['executable']
 				self.handler = self.exec_type['handler']
+				if self.executable.startswith('!'):
+					self.executable = self.executables[self.executable[1:]]
+				if self.handler.startswith('!'):
+					self.handler = self.handlers[self.handler[1:]]
 			else:
 				self.executable = self.executables[self.exec_type]
 				self.handler = self.handlers[self.exec_type]
@@ -254,6 +259,8 @@ class JobRunner(object):
 		all_success = True
 		err = None
 		self.logger.debug('creating %d processes', n_procs)
+		self.logger.debug('executable: %s', self.executable)
+		self.logger.debug('handler: %s', self.handler)
 		for _ in range(n_procs):
 			success, proc = self.create_process(
 				self.executable, 
@@ -263,7 +270,7 @@ class JobRunner(object):
 			if not success:
 				all_success = False
 				try:
-					err = json.loads(proc)
+					proc = json.loads(proc)
 				except:
 					err = {
 						'stack': proc,
@@ -417,7 +424,19 @@ class JobRunner(object):
 		finally:
 			self.running = running
 
+	def gen(self, beg, timeout=None):
+		while True:
+			try:
+				for item in self.loop(timeout):
+					self.items_processed += 1
+					self.time_elapsed = time.time() - beg
+					yield item
+			except IterationCompleted:
+				break
+
+	@contextmanager
 	def run(self, timeout=None, swap_sigint=True, monitor=True):
+
 		self.monitor_thread = None
 		self.time_elapsed, self.items_processed = 0., 0
 		self.create = True
@@ -429,22 +448,18 @@ class JobRunner(object):
 			self.monitor_thread = self.create_monitoring_thread()
 			self.running = True
 			self.monitor_thread.start()
+
 		try:
 			beg = time.time()
 			self.seed_procs()
-			while True:
-				try:
-					for item in self.loop(timeout):
-						self.items_processed += 1
-						self.time_elapsed = time.time() - beg
-						yield item
-				except IterationCompleted:
-					break
+			yield self.gen(beg, timeout)
 		finally:
+			self.terminate(soft=False, wait=True)
+			self.procs, self.streams = {}, {}
+
 			self.time_elapsed = time.time() - beg
 			if swap_sigint:
 				signal.signal(signal.SIGINT, orig)
 			if monitor:
 				self.kill_monitoring_thread(wait=True)
 				self.monitor_thread = None
-

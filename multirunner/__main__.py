@@ -166,6 +166,7 @@ def main(argv=sys.argv[1:]):
 	try:
 		success, err = runner.setup()
 	except ALWAYS_RAISE as exc:
+		raise
 		logger.info('Exiting w/ %s' % exc.__class__.__name__)
 		return 1
 
@@ -174,11 +175,13 @@ def main(argv=sys.argv[1:]):
 		return 2
 
 	try:
-		for item in runner.run():
-			if not item.endswith('\n'):
-				item += '\n'
-			args.output_file.write(item)
+		with runner.run() as gen:
+			for item in gen:
+				if not item.endswith('\n'):
+					item += '\n'
+				args.output_file.write(item)
 	except ALWAYS_RAISE as exc:
+		raise
 		logger.info('Exiting w/ %s' % exc.__class__.__name__)
 		return 1
 
