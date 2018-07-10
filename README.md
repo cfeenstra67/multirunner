@@ -15,6 +15,8 @@ the context manager yielding a generator is a bit clunky syntactically, but in t
 
 Notably the `runner` has an attribute `stats`. This is an object that collects analytics about the child processes being run. The `average_stats()` method of this object can be used to retrieve average statistics about memory and cpu usage of the child processes. By default it returns the averages per pid--pass `per_pid=False` to this method to retrieve overall averages.
 
+NOTE: the items in the data stream must be JSON serializable
+
 ## CLI
 
 The `JobRunner` functionality can also be accessed through the CLI. Specs are provided as files, either YAML or JSON. The data stream can either be provided as a file or through stdin, where each line is a JSON object. A spec file might look like:
