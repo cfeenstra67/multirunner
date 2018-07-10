@@ -40,7 +40,7 @@ multirunner -s spec.yml -d data.json
 ```
 Using `python3 -m multirunner` instead of `multirunner` can be used if the package is not installed or if there is a name overlap. Use the `--help` argument ot view additional options. 
 
-THe CLI will print the average memory and CPU usage statistics to screen after running.
+The CLI will print the average memory and CPU usage statistics to screen after running.
 
 ## Installation
 
