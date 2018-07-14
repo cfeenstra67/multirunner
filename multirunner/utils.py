@@ -4,6 +4,9 @@ import subprocess
 import sys
 import time
 
+class IterationCompleted(Exception):
+	pass
+
 def read_wait(streams, timeout=None, min_ready=None):
 	streams = list(streams)
 	if min_ready is None:
@@ -26,9 +29,6 @@ def read_wait(streams, timeout=None, min_ready=None):
 
 		if len(done_streams) >= min_ready or len(streams) == 0:
 			return done_streams
-
-class IterationCompleted(Exception):
-	pass
 
 def signal_handler(func):
 	@wraps(func)
