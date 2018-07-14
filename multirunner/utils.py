@@ -1,6 +1,31 @@
 from functools import wraps
+import select
 import subprocess
 import sys
+import time
+
+def read_wait(streams, timeout=None, min_ready=None):
+	streams = list(streams)
+	if min_ready is None:
+		min_ready = len(streams)
+
+	done_streams = []
+	beg = time.time()
+	while True:
+		if timeout is None:
+			to = None
+		else:
+			to = timeout - (time.time() - beg)
+			if to < 0:
+				raise TimeoutError('an insufficient quantity of streams buffered in time')
+
+		done, _, _ = select.select(streams, [], [], to)
+		for val in done:
+			streams.remove(val)
+		done_streams.extend(done)
+
+		if len(done_streams) >= min_ready or len(streams) == 0:
+			return done_streams
 
 class IterationCompleted(Exception):
 	pass
