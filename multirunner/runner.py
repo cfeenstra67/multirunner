@@ -65,6 +65,7 @@ def create_process(executable, spec, swap_sigint=True, universal_newlines=True,
 	try:
 		read_wait([popen.stdout], read_timeout)
 	except TimeoutError:
+		popen.terminate()
 		return False, traceback.format_exc()
 
 	ok = popen.stdout.readline()
