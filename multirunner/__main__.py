@@ -44,6 +44,10 @@ def parse_args(argv=sys.argv[1:], default_loglvl=logging.INFO):
 	parser.add_argument('--setup-hook', type=str, default=None,
 		help='Overrides exec_info->setup_hook in spec if one is being provided')
 
+	parser.add_argument('-t', '--timeout', type=float, default=30,
+		help='Set a timeout for receiving responses from child processes after '
+			 'which setup is considered failed')
+
 	args = parser.parse_args(argv)
 	# if args.spec_file is None:
 	# 	parser.error('You must provide a spec')
@@ -160,7 +164,8 @@ def main(argv=sys.argv[1:]):
 	runner = JobRunner(
 		spec, args.data, 
 		n_procs=args.n_processes,
-		logger=logger
+		logger=logger,
+		process_timeout=args.timeout
 	)
 
 	try:

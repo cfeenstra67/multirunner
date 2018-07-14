@@ -1,0 +1,5 @@
+exec_type: python2
+exec_info:
+  code:
+    type: path
+    data: tests/test_py.py

@@ -16,9 +16,28 @@ import time
 import traceback
 from .utils import signal_handler, IterationCompleted, locked_attr_funcs
 
+def read_wait(streams, timeout=None, min_ready=1):
+	streams = list(streams)
+	done_streams = []
+	beg = time.time()
+	while True:
+		if timeout is None:
+			to = None
+		else:
+			to = timeout - (time.time() - beg)
+			if to < 0:
+				raise TimeoutError('an insufficient quantity of streams buffered in time')
+
+		done, _, _ = select.select(streams, [], [], to)
+		for val in done:
+			streams.remove(val)
+		done_streams.extend(done)
+
+		if len(done_streams) >= min_ready:
+			return done_streams
 
 def create_process(executable, spec, swap_sigint=True, universal_newlines=True, 
-				   stderr=None):
+				   stderr=None, read_timeout=30):
 
 	handler = None
 	if swap_sigint:
@@ -43,6 +62,11 @@ def create_process(executable, spec, swap_sigint=True, universal_newlines=True,
 	popen.stdin.write(spec)
 	popen.stdin.flush()
 
+	try:
+		read_wait([popen.stdout], read_timeout)
+	except TimeoutError:
+		return False, traceback.format_exc()
+
 	ok = popen.stdout.readline()
 	ok = ok.strip().upper()
 	if isinstance(ok, str):
@@ -54,7 +78,14 @@ def create_process(executable, spec, swap_sigint=True, universal_newlines=True,
 
 	popen.stdout.flush()
 	popen.stderr.flush()
-	err = popen.stdout.read() + popen.stderr.read()
+
+	try:
+		read_wait([popen.stdout, popen.stderr], read_timeout)
+	except TimeoutError:
+		err = traceback.format_exc()
+	else:
+		err = popen.stdout.read() + popen.stderr.read()
+
 	popen.terminate()
 	return False, err
 
@@ -138,7 +169,7 @@ class JobRunner(object):
 
 	def __init__(self, spec, data_stream, memory_lim=DEFAULT_MEMORY, logger=logging.getLogger(),
 				 executables=RUNNER_COMMANDS, cpu_lim=DEFAULT_CPU, n_procs=None, maintain=True,
-				 handlers=RUNNER_HANDLERS):
+				 handlers=RUNNER_HANDLERS, process_timeout=30):
 
 		self.spec = spec
 		self.executables = executables
@@ -149,6 +180,7 @@ class JobRunner(object):
 		self.logger = logger
 		self.data_stream = iter(data_stream)
 		self._n_procs = n_procs
+		self.process_timeout = process_timeout
 
 		self._procs = {}
 		self.streams = {}
@@ -196,7 +228,7 @@ class JobRunner(object):
 		spec_str = json.dumps(exec_info)
 		executable = executable.copy()
 		executable.append(handler)
-		return create_process(executable, spec_str)
+		return create_process(executable, spec_str, read_timeout=self.process_timeout)
 
 	def kill_process(self, proc, soft=True, wait=False):
 		if soft:
@@ -208,10 +240,6 @@ class JobRunner(object):
 				proc.wait(wait)
 			else:
 				proc.wait()
-
-	def loop(self):
-		waiters = list(self.procs)
-		ready = select.select()
 
 	def setup(self, n_procs=None):
 		if n_procs is None:
