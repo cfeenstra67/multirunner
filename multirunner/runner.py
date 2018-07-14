@@ -36,7 +36,7 @@ def read_wait(streams, timeout=None, min_ready=None):
 			streams.remove(val)
 		done_streams.extend(done)
 
-		if len(done_streams) >= min_ready:
+		if len(done_streams) >= min_ready or len(streams) == 0:
 			return done_streams
 
 def create_process(executable, spec, swap_sigint=True, universal_newlines=True, 
