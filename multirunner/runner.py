@@ -16,8 +16,11 @@ import time
 import traceback
 from .utils import signal_handler, IterationCompleted, locked_attr_funcs
 
-def read_wait(streams, timeout=None, min_ready=1):
+def read_wait(streams, timeout=None, min_ready=None):
 	streams = list(streams)
+	if min_ready is None:
+		min_ready = len(streams)
+
 	done_streams = []
 	beg = time.time()
 	while True:
