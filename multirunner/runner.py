@@ -452,7 +452,9 @@ class JobRunner(object):
 		finally:
 			self.running = running
 
-	def gen(self, beg, timeout=None):
+	def gen(self, beg=None, timeout=None):
+		if beg is None:
+			beg = time.time()
 		while True:
 			try:
 				for item in self.loop(timeout):
