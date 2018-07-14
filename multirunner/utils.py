@@ -73,30 +73,24 @@ def command_exists(cmd, shell=False):
 	out, _ = proc.communicate()
 	return bool(out)
 
+def cmd_finder(default, ops):
+	def func(default=default, ops=ops):
+		for op in ops:
+			if command_exists(op):
+				return op
+		return default
+	return func
 
 def python2_cmd(default='python', ops=['python2', 'python']):
 	if sys.version_info.major == 2:
 		return sys.executable
 
-	for op in ops:
-		if command_exists(op):
-			return op
-
-	return default
+	return cmd_finder(default, ops)(default, ops)
 
 def python3_cmd(default='python3', ops=['python3', 'python']):
 	if sys.version_info.major == 3:
 		return sys.executable
 
-	for op in ops:
-		if command_exists(op):
-			return op
+	return cmd_finder(default, ops)(default, ops)
 
-	return default
-
-def node_cmd(default='node', ops=['node.js', 'node']):
-	for op in ops:
-		if command_exists(op):
-			return op
-
-	return default
+node_cmd = cmd_finder('node', ['node.js', 'node'])
